@@ -1,3 +1,11 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# 
+# =========================================================================================
+# Data from:
+# https://www.irn.ru/rating/moscow/?prn=1&segment=districts&param=IS&sort=value&currency=0#
+# =========================================================================================
+
 import pandas as pd
 
 df = pd.read_csv("unprocessed_prices_near_metro.csv", sep=";", encoding="utf8")
