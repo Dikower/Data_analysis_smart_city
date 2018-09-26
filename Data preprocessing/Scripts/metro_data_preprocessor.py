@@ -15,4 +15,4 @@ for row in range(df.shape[0]):
     for metro in metros:
         new_data[metro] = [df["price"][row]]
 new_data = pd.DataFrame(new_data)
-new_data.to_csv("processed_prices_near_metro.csv")
+new_data.to_csv("Data/processed_prices_near_metro.csv")
