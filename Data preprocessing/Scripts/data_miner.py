@@ -17,9 +17,15 @@ import socket
 import pandas as pd
 import numpy as np
 
+import logging
+logging.basicConfig(format='[%(asctime)s][%(levelname)s]-%(message)s',
+                    level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 class DataMiner:
-    def __init__(self, api_key: str, csv_file_path: str, classes: list, language: str, mine_coors=True):
+    def __init__(self, api_key: str, csv_file_path: str, metro_data_path: str, classes: list, language: str,
+                 mine_coors=True):
         # Variables for requests
         self.api_key = api_key
         self.format = "json"
@@ -35,6 +41,8 @@ class DataMiner:
         self.data_base = pd.read_csv(csv_file_path, sep=';', encoding="utf8")
         self.variable_data_base = None
         self.mine_coors = mine_coors
+
+        self.metro_data_path = metro_data_path
         try:
             os.mkdir("backups")
         except FileExistsError:
@@ -53,23 +61,32 @@ class DataMiner:
 
     # The function which starts coroutines adding classes columns
     async def search_classes(self, session):
-        print("search_classes")
         for _class in self.classes:
             # using index because of async returning => non sorted results
-            if _class == "метро":
-                self.variable_data_base = pd.read_csv("processed_prices_near_metro.csv", encoding="utf8", sep=";")
-                self.data_base["prices_near_metro"] = pd.Series(np.zeros(self.data_base.shape[0]))
-            futures = [await self.search_objects_class(session, index, coordinates, _class)
+            futures = [asyncio.ensure_future(self.search_objects_class(session, index, coordinates, _class))
                        for index, coordinates in zip(self.data_base.index, self.data_base["coors"])]
+
             new_class = np.zeros(self.data_base.shape[0])
             new_distances = np.zeros(self.data_base.shape[0])
+            new_mean_distance = np.zeros(self.data_base.shape[0])
+            start = time.process_time()
+            times = 0
+            futures = await asyncio.gather(*futures)
             for future in futures:
-                index, value, min_distance = future
+                index, value, min_distance, mean_distance = future
                 new_class[index] = value
-                new_distances[index] = value
+                new_distances[index] = min_distance
+                new_mean_distance[index] = mean_distance
+                times += 1
+                if times % 10 == 0:
+                    print(f"{(times/ self.data_base.shape[0]) * 100}%")
+
             self.data_base[_class] = pd.Series(new_class)
             self.data_base[f"min_distance_for_{_class}"] = pd.Series(new_distances)
+            self.data_base[f"mean_distance_for_{_class}"] = pd.Series(new_mean_distance)
+
             self.data_base.to_csv(f"backups/backup_{time.time()}.csv", sep=";", encoding="utf8", index=False)
+            print(f"The Mining of {_class} class finished after {round(time.process_time() - start, 2)}")
 
     # The request coroutine getting coordinates from address using yandex geocode
     async def find_object(self, session, index, address):
@@ -95,24 +112,32 @@ class DataMiner:
 
         async with session.get(self.search_url, params=search_params) as response:
             json_response = await response.json()
-            # print(json_response)
-            value = len(json_response["features"])
-            objects = {}
-            for object in json_response["features"]:
-                name = object["properties"]["CompanyMetaData"]["name"]
-                if objects_class == "метро":
-                    if name in self.variable_data_base.columns:
-                        self.data_base["prices_near_metro"] = self.variable_data_base[name]
-                object_coordinates = object['geometry']['coordinates']
-                distance = await self.distance(coordinates.split(","), object_coordinates)
-                objects[name] = distance
+            logger.info(json_response)
+            try:
+                value = len(json_response["features"])
+                objects = {}
+                for object in json_response["features"]:
+                    name = object["properties"]["CompanyMetaData"]["name"]
+                    if objects_class == "метро":
+                        if name in self.variable_data_base.columns:
+                            self.data_base["prices_near_metro"] = self.variable_data_base[name]
+                    object_coordinates = object['geometry']['coordinates']
+                    distance = await self.distance(coordinates.split(","), object_coordinates)
+                    objects[name] = distance
 
-            if objects != {}:
-                min_distance = objects[min(objects.keys(), key=lambda x: objects[x])]
-            else:
                 min_distance = 0
+                mean_distance = 0
+                if objects != {}:
+                    min_distance = objects[min(objects.keys(), key=lambda x: objects[x])]
+                    mean_distance = np.array(list(objects.values())).mean()
+            except:
+                index, value, min_distance, mean_distance = 0, 0, 0, 0
 
-            return index, value, min_distance
+            return index, value, min_distance, mean_distance
+
+    def add_metro_data(self):
+        self.variable_data_base = pd.read_csv(self.metro_data_path, encoding="utf8", sep=";")
+        self.data_base["prices_near_metro"] = pd.Series(np.zeros(self.data_base.shape[0]))
 
     # The function calculating distance between two dots
     @staticmethod
@@ -155,15 +180,15 @@ language = "ru_RU"
 token = "3c4a592e-c4c0-4949-85d1-97291c87825c"
 
 # File path (the class opens csv with sep=';'. The file columns: address; ... your columns for model;)
-path = "data.csv"
-
+path = "_data.csv"
+metro_data_path = "processed_prices_near_metro"
 # If there is column with coors switch to False
-mine_coors = True
+mine_coors = False
 
 # Starts mining
-dm = DataMiner(token, path, classes, language, mine_coors)
+dm = DataMiner(token, path, metro_data_path, classes, language, mine_coors)
 dm.event_loop.run_until_complete(dm.mine())
 dm.event_loop.close()
 
 # Saves mined data to csv
-dm.data_base.to_csv("result.csv", sep=";", encoding="utf8", index=False)
+dm.data_base.to_csv("result.csv", sep=";", encoding="utf8", index=True)
