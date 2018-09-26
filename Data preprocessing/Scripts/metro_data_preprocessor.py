@@ -8,7 +8,7 @@
 
 import pandas as pd
 
-df = pd.read_csv("unprocessed_prices_near_metro.csv", sep=";", encoding="utf8")
+df = pd.read_csv("../Data/unprocessed_prices_near_metro.csv", sep=";", encoding="utf8")
 new_data = {}
 for row in range(df.shape[0]):
     metros = df["metros"][row].split(", ")
