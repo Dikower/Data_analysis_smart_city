@@ -110,7 +110,7 @@ class DataMiner:
 
             if (index + 1) % 100 == 0:
                 self.data_base.to_csv(f"backups/backup_{time.time()}.csv", sep=";", encoding="utf8", index=False)
-                logger.info(f"{index/self.data_base.shape[0] * 100}%")
+                logger.info(f"{round(index/self.data_base.shape[0] * 100, 2)}%")
 
     # The request coroutine getting coordinates from address using yandex geocode
     async def find_object(self, session, index, address):
@@ -208,8 +208,8 @@ language = "ru_RU"
 token = "3c4a592e-c4c0-4949-85d1-97291c87825c"
 
 # File path (the class opens csv with sep=';'. The file columns: address; ... your columns for model;)
-path = "prices.csv"
-metro_data_path = "processed_prices_near_metro"
+path = "Data/prices.csv"
+metro_data_path = "Data/processed_prices_near_metro"
 # If there is column with coors switch to False
 mine_coors = False
 # Not recommended to switch to False
