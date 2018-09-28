@@ -60,7 +60,7 @@ class DataMiner:
         self.data_base["coors"] = pd.Series(coors)
 
     # The function which starts coroutines adding classes columns
-    async def search_classes(self, session):
+    async def search_by_column(self, session):  # makes n parallel responses for n flats
         for _class in self.classes:
             # using index because of async returning => non sorted results
             futures = [asyncio.ensure_future(self.search_objects_class(session, index, coordinates, _class))
@@ -73,7 +73,7 @@ class DataMiner:
             times = 0
             futures = await asyncio.gather(*futures)
             for future in futures:
-                index, value, min_distance, mean_distance = future
+                _, index, value, min_distance, mean_distance = future
                 new_class[index] = value
                 new_distances[index] = min_distance
                 new_mean_distance[index] = mean_distance
@@ -87,6 +87,30 @@ class DataMiner:
 
             self.data_base.to_csv(f"backups/backup_{time.time()}.csv", sep=";", encoding="utf8", index=False)
             print(f"The Mining of {_class} class finished after {round(time.process_time() - start, 2)}")
+
+    # The function which starts coroutines adding filled rows
+    async def search_by_rows(self, session):  # makes n parallel requests for n classes
+        zero_vector = np.zeros(self.data_base.shape[0])
+        for _class in self.classes:
+            self.data_base[_class] = pd.Series(zero_vector)
+            self.data_base[f"min_distance_for_{_class}"] = pd.Series(zero_vector)
+            self.data_base[f"mean_distance_for_{_class}"] = pd.Series(zero_vector)
+
+        for index, flat in self.data_base.iterrows():
+            # using index because of async returning => non sorted results
+            futures = [asyncio.ensure_future(self.search_objects_class(session, index, flat["coors"], _class))
+                       for _class in self.classes]
+
+            futures = await asyncio.gather(*futures)
+            for future in futures:
+                _class, index, value, min_distance, mean_distance = future
+                self.data_base.at[index, _class] = value
+                self.data_base.at[index, f"min_distance_for_{_class}"] = min_distance
+                self.data_base.at[index, f"mean_distance_for_{_class}"] = mean_distance
+
+            if (index + 1) % 100 == 0:
+                self.data_base.to_csv(f"backups/backup_{time.time()}.csv", sep=";", encoding="utf8", index=False)
+                logger.info(f"{index/self.data_base.shape[0] * 100}%")
 
     # The request coroutine getting coordinates from address using yandex geocode
     async def find_object(self, session, index, address):
@@ -112,7 +136,7 @@ class DataMiner:
 
         async with session.get(self.search_url, params=search_params) as response:
             json_response = await response.json()
-            logger.info(json_response)
+            # logger.info(json_response)
             try:
                 value = len(json_response["features"])
                 objects = {}
@@ -131,9 +155,10 @@ class DataMiner:
                     min_distance = objects[min(objects.keys(), key=lambda x: objects[x])]
                     mean_distance = np.array(list(objects.values())).mean()
             except:
+                logger.info("ERROR!")
                 index, value, min_distance, mean_distance = 0, 0, 0, 0
 
-            return index, value, min_distance, mean_distance
+            return objects_class, index, value, min_distance, mean_distance
 
     def add_metro_data(self):
         self.variable_data_base = pd.read_csv(self.metro_data_path, encoding="utf8", sep=";")
@@ -159,14 +184,17 @@ class DataMiner:
         return distance
 
     # The function starting work
-    async def mine(self):
+    async def mine(self, rows):
         # connector = aiohttp.TCPConnector(verify_ssl=False, family=socket.AF_INET)
         connector = aiohttp.TCPConnector(family=socket.AF_INET)
         async with aiohttp.ClientSession(connector=connector) as session:
             if self.mine_coors:
-                _ = [await func(session) for func in [self.get_coors, self.search_classes]]
+                await self.get_coors(session)
+
+            if rows:
+                await self.search_by_rows(session)
             else:
-                await self.search_classes(session)
+                await self.search_by_column(session)
 
 
 # Buildings type to search (features for model)
@@ -180,14 +208,17 @@ language = "ru_RU"
 token = "3c4a592e-c4c0-4949-85d1-97291c87825c"
 
 # File path (the class opens csv with sep=';'. The file columns: address; ... your columns for model;)
-path = "_data.csv"
+path = "prices.csv"
 metro_data_path = "processed_prices_near_metro"
 # If there is column with coors switch to False
 mine_coors = False
+# Not recommended to switch to False
+# Because it can send a lot of parallel requests, where its number is depended by number of flats
+mine_by_rows = True
 
 # Starts mining
 dm = DataMiner(token, path, metro_data_path, classes, language, mine_coors)
-dm.event_loop.run_until_complete(dm.mine())
+dm.event_loop.run_until_complete(dm.mine(mine_by_rows))
 dm.event_loop.close()
 
 # Saves mined data to csv
