@@ -241,7 +241,7 @@ classes = ["метро", "аптека", "парк", "кафе", "торговы
 language = "ru_RU"
 
 # Your token for yandex organisation search api
-# This one allows you to make only 500 requests, so you can fill only 33 rows
+# This one allows you to make only 500 requests per a day, so you can fill only 33 rows
 token = "3c4a592e-c4c0-4949-85d1-97291c87825c"  #
 
 # File path (the class opens csv with sep=';'. The file columns: address; ... your columns for model)
