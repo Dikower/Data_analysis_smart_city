@@ -206,7 +206,7 @@ class DataMiner:
 
         # Вычисляем расстояние между точками.
         distance = math.sqrt(dx * dx + dy * dy)
-        return distance
+        return round(distance)
 
     # The function starting work
     async def mine(self, rows):
@@ -220,7 +220,7 @@ class DataMiner:
                 await self.search_by_rows(session)
             else:
                 await self.search_by_columns(session)
-
+        self.prices_database = self.prices_database.drop(["coors"], axis=0)
 
 # Buildings type to search (features for model)
 classes = ["метро", "аптека", "парк", "кафе", "торговый центр", "школа", "детский сад", "улица",
@@ -234,7 +234,7 @@ language = "ru_RU"
 token = "3c4a592e-c4c0-4949-85d1-97291c87825c"  #
 
 # File path (the class opens csv with sep=';'. The file columns: address; ... your columns for model)
-prices_data_path = "../Data/prices.csv"
+prices_data_path = "../Data/_data.csv"
 metro_data_path = "../Data/processed_prices_near_metro"
 # If there is column with coors switch to False
 mine_coors = False
@@ -248,4 +248,4 @@ dm.event_loop.run_until_complete(dm.mine(mine_by_rows))
 dm.event_loop.close()
 
 # Saves mined data to csv
-dm.prices_database.to_csv("../Data/database.csv", sep=";", encoding="utf8", index=True)
+dm.prices_database.to_csv("../../data.csv", sep=";", encoding="utf8", index=False)
