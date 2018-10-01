@@ -19,13 +19,10 @@ import pandas as pd
 import numpy as np
 
 import logging
-logging.basicConfig(format="[%(asctime)s][%(levelname)s]-%(message)s",
-                    level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 class DataMiner:
-    def __init__(self, api_key: str, csv_file_path: str, metro_data_path: str, classes: list, language: str,
+    def __init__(self, api_key: str, prices_data_path: str, metro_data_path: str, classes: list, language: str,
                  mine_coors=True):
         # Variables for requests
         self.api_key = api_key
@@ -39,16 +36,15 @@ class DataMiner:
 
         # Variables for async running
         self.event_loop = asyncio.get_event_loop()
-        self.data_base = pd.read_csv(csv_file_path, sep=';', encoding="utf8")
-        self.variable_data_base = None
+        self.prices_database = pd.read_csv(prices_data_path, sep=';', encoding="utf8")
+        # self.metro_database = pd.read_csv(metro_data_path, sep=';', encoding="utf8") TODO add this data to all
         self.mine_coors = mine_coors
-        zero_vector = np.zeros(self.data_base.shape[0])
+        zero_vector = np.zeros(self.prices_database.shape[0])
         for _class in self.classes:
-            self.data_base[_class] = pd.Series(zero_vector)
-            self.data_base[f"min_distance_for_{_class}"] = pd.Series(zero_vector)
-            self.data_base[f"mean_distance_for_{_class}"] = pd.Series(zero_vector)
+            self.prices_database[_class] = pd.Series(zero_vector)
+            self.prices_database[f"min_distance_for_{_class}"] = pd.Series(zero_vector)
+            self.prices_database[f"mean_distance_for_{_class}"] = pd.Series(zero_vector)
 
-        self.metro_data_path = metro_data_path
         try:
             os.mkdir("backups")
         except FileExistsError:
@@ -58,16 +54,16 @@ class DataMiner:
                             level=logging.INFO)
         self.logger = logging.getLogger(__name__)
 
-    # The function which starts coroutines filling data_base with coordinates
+    # The function which starts coroutines filling prices_database with coordinates
     async def get_coors(self, session):
         # using index because of async returning => non sorted results
         futures = [await self.find_object(session, index, address)
-                   for index, address in zip(self.data_base.index, self.data_base["address"])]
-        coors = list(range(self.data_base.shape[0]))
+                   for index, address in zip(self.prices_database.index, self.prices_database["address"])]
+        coors = list(range(self.prices_database.shape[0]))
         for future in futures:
             index, dot = future
             coors[index] = ",".join(dot)
-        self.data_base["coors"] = pd.Series(coors)
+        self.prices_database["coors"] = pd.Series(coors)
 
     # The function which starts coroutines adding classes columns
     async def search_by_columns(self, session):  # makes n parallel responses for n flats
@@ -75,11 +71,11 @@ class DataMiner:
         for _class in self.classes:
             # using index because of async returning => non sorted results
             futures = [asyncio.ensure_future(self.search_objects_class(session, index, coordinates, _class))
-                       for index, coordinates in zip(self.data_base.index, self.data_base["coors"])]
+                       for index, coordinates in zip(self.prices_database.index, self.prices_database["coors"])]
 
-            new_class = np.zeros(self.data_base.shape[0])
-            new_distances = np.zeros(self.data_base.shape[0])
-            new_mean_distance = np.zeros(self.data_base.shape[0])
+            new_class = np.zeros(self.prices_database.shape[0])
+            new_distances = np.zeros(self.prices_database.shape[0])
+            new_mean_distance = np.zeros(self.prices_database.shape[0])
             start = time.process_time()
             times = 0
             futures = await asyncio.gather(*futures)
@@ -90,19 +86,19 @@ class DataMiner:
                 new_mean_distance[index] = mean_distance
                 times += 1
                 if times % 10 == 0:
-                    print(f"{(times/ self.data_base.shape[0]) * 100}%")
+                    print(f"{(times/ self.prices_database.shape[0]) * 100}%")
 
-            self.data_base[_class] = pd.Series(new_class)
-            self.data_base[f"min_distance_for_{_class}"] = pd.Series(new_distances)
-            self.data_base[f"mean_distance_for_{_class}"] = pd.Series(new_mean_distance)
+            self.prices_database[_class] = pd.Series(new_class)
+            self.prices_database[f"min_distance_for_{_class}"] = pd.Series(new_distances)
+            self.prices_database[f"mean_distance_for_{_class}"] = pd.Series(new_mean_distance)
 
-            self.data_base.to_csv(f"backups/backup_{time.time()}.csv", sep=";", encoding="utf8", index=False)
+            self.prices_database.to_csv(f"backups/backup_{time.time()}.csv", sep=";", encoding="utf8", index=False)
             print(f"The Mining of {_class} class finished after {round(time.process_time() - start, 2)}")
 
     # The function which starts coroutines adding filled rows
     async def search_by_rows(self, session):  # makes n parallel requests for n classes
         self.logger.info("Starting search by rows")
-        for index, flat in self.data_base.iterrows():
+        for index, flat in self.prices_database.iterrows():
             # using index because of async returning => non sorted results
             futures = [asyncio.ensure_future(self.search_objects_class(session, index, flat["coors"], _class))
                        for _class in self.classes]
@@ -110,13 +106,13 @@ class DataMiner:
             futures = await asyncio.gather(*futures)
             for future in futures:
                 _class, index, value, min_distance, mean_distance = future
-                self.data_base.at[index, _class] = value
-                self.data_base.at[index, f"min_distance_for_{_class}"] = min_distance
-                self.data_base.at[index, f"mean_distance_for_{_class}"] = mean_distance
+                self.prices_database.at[index, _class] = value
+                self.prices_database.at[index, f"min_distance_for_{_class}"] = min_distance
+                self.prices_database.at[index, f"mean_distance_for_{_class}"] = mean_distance
 
             if (index + 1) % 100 == 0:
-                self.data_base.to_csv(f"backups/backup_{time.time()}.csv", sep=";", encoding="utf8", index=False)
-                self.logger.info(f"{round(index/self.data_base.shape[0] * 100, 2)}%")
+                self.prices_database.to_csv(f"backups/backup_{time.time()}.csv", sep=";", encoding="utf8", index=False)
+                self.logger.info(f"{round(index/self.prices_database.shape[0] * 100, 2)}%")
 
     # The request coroutine getting coordinates from address using yandex geocode
     async def find_object(self, session, index, address):
@@ -152,9 +148,6 @@ class DataMiner:
                 objects = {}
                 for _object in json_response["features"]:
                     name = _object["properties"]["CompanyMetaData"]["name"]
-                    if objects_class == "метро":
-                        if name in self.variable_data_base.columns:
-                            self.data_base["prices_near_metro"] = self.variable_data_base[name]
                     object_coordinates = _object['geometry']['coordinates']
                     distance = await self.distance(coordinates.split(","), object_coordinates)
                     objects[name] = distance
@@ -170,11 +163,7 @@ class DataMiner:
 
             return objects_class, index, value, min_distance, mean_distance
 
-    def add_metro_data(self):
-        self.variable_data_base = pd.read_csv(self.metro_data_path, encoding="utf8", sep=";")
-        self.data_base["prices_near_metro"] = pd.Series(np.zeros(self.data_base.shape[0]))
-
-    @staticmethod
+    @staticmethod  # TODO its using
     async def parse_flat_page(session, url):
         evaluations = {
             "Конструктив и состояние": 0,
@@ -245,7 +234,7 @@ language = "ru_RU"
 token = "3c4a592e-c4c0-4949-85d1-97291c87825c"  #
 
 # File path (the class opens csv with sep=';'. The file columns: address; ... your columns for model)
-path = "../Data/prices.csv"
+prices_data_path = "../Data/prices.csv"
 metro_data_path = "../Data/processed_prices_near_metro"
 # If there is column with coors switch to False
 mine_coors = False
@@ -254,10 +243,9 @@ mine_coors = False
 mine_by_rows = True
 
 # Starts mining
-dm = DataMiner(token, path, metro_data_path, classes, language, mine_coors)
+dm = DataMiner(token, prices_data_path, metro_data_path, classes, language, mine_coors)
 dm.event_loop.run_until_complete(dm.mine(mine_by_rows))
-dm.add_metro_data()
 dm.event_loop.close()
 
 # Saves mined data to csv
-dm.data_base.to_csv("../Data/database.csv", sep=";", encoding="utf8", index=True)
+dm.prices_database.to_csv("../Data/database.csv", sep=";", encoding="utf8", index=True)
