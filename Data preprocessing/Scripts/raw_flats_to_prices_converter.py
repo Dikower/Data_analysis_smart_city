@@ -19,4 +19,5 @@ del df
 new_df["price_per_m"] = new_df["price"] / new_df["overallarea"]
 new_df["coors"] = new_df["lon"].astype(str)+','+new_df["lat"].astype(str)
 new_df = new_df.drop(["overallarea", "price", "lon", "lat"], axis=1)
-new_df.to_csv("../Data/prices.csv", index=False)
+print(new_df["coors"])
+new_df.to_csv("../Data/prices.csv", sep=";", index=False)
