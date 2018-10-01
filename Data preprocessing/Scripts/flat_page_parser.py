@@ -1,3 +1,6 @@
+# This code is included into main data_miner.py
+# Written by Elena Nikitina
+
 from bs4 import BeautifulSoup
 import requests
 import sys
