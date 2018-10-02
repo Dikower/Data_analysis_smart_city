@@ -1,0 +1,7 @@
+asyncio
+aiohttp
+numpy
+pandas
+sklearn
+catboost
+beautifulsoup4
